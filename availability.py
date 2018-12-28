@@ -42,7 +42,7 @@ def fetch_carpark_avail(overwrite=True):
 
 
 def get_available_lots(latitude, longitude, radius=3):
+    # e.g. latitude / longitude: 1.328172 / 103.842334
     # radius in km
     # if radius is none, return all carparks
     return [] # returns a list of carparks
-
