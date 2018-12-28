@@ -3,6 +3,7 @@ import json
 import csv
 import os.path
 from dataclasses import dataclass
+from secret import DATAMALL_APIKEY
 
 DATA_FOLDER = "data"
 
@@ -32,14 +33,35 @@ class Carpark:
     car_park_basement: bool
 
 
-def fetch_carpark_avail(overwrite=True):
+def fetch_carpark_avail_datagov(overwrite=True):
     r = requests.get(
         "https://api.data.gov.sg/v1/transport/carpark-availability")
     response = r.json()
     timestamp = "latest" if overwrite else response['items'][0]['timestamp']
-    filename = os.path.join(DATA_FOLDER, "avail", "avail_{}.json".format(timestamp))
+    filename = os.path.join(DATA_FOLDER, "avail", "avail_datagov_{}.json".format(timestamp))
+    print(len(response['items'][0]['carpark_data']))
     with open(filename, 'w') as outfile:
         json.dump(response['items'][0], outfile)
+
+
+def fetch_carpark_avail_lta(overwrite=True):
+    headers = {
+        "AccountKey": DATAMALL_APIKEY,
+        "accept": "application/json"
+    }
+    r = requests.get(
+        "http://datamall2.mytransport.sg/ltaodataservice/CarParkAvailabilityv2", headers=headers)
+    response = r.json()
+    timestamp = "latest" if overwrite else response['items'][0]['timestamp']
+    filename = os.path.join(DATA_FOLDER, "avail", "avail_lta_{}.json".format(timestamp))
+    print(len(response['value']))
+    with open(filename, 'w') as outfile:
+        json.dump(response['value'], outfile)
+
+
+def fetch_carpark_avail_all(overwrite=True):
+    fetch_carpark_avail_datagov(overwrite)
+    fetch_carpark_avail_lta(overwrite)
 
 
 def get_available_lots(latitude, longitude, radius=3):
@@ -49,9 +71,14 @@ def get_available_lots(latitude, longitude, radius=3):
 
     with open("data/hdb-carpark-information.csv") as f:
         reader = csv.DictReader(f)
-        carpark_static = list(reader)
-    with open("data/avail/avail_latest.json") as f:
-        latest_avail = json.load(f)['carpark_data']
+        carpark_static_hdb = list(reader)
+    with open("data/CarParkRates.csv") as f:
+        reader = csv.DictReader(f)
+        carpark_static_malls = list(reader)
+    with open("data/avail/avail_datagov_latest.json") as f:
+        latest_avail_hdb = json.load(f)['carpark_data']
+    with open("data/avail/avail_lta_latest.json") as f:
+        latest_avail_assorted = json.load(f)
 
     print(len(carpark_static))
     print(carpark_static[0])
