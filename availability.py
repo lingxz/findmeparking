@@ -1,5 +1,6 @@
 import requests
 import json
+import csv
 import os.path
 from dataclasses import dataclass
 
@@ -44,5 +45,16 @@ def fetch_carpark_avail(overwrite=True):
 def get_available_lots(latitude, longitude, radius=3):
     # e.g. latitude / longitude: 1.328172 / 103.842334
     # radius in km
-    # if radius is none, return all carparks
-    return [] # returns a list of carparks
+    # if radius is none, return all carparks with their availability
+
+    with open("data/hdb-carpark-information.csv") as f:
+        reader = csv.DictReader(f)
+        carpark_static = list(reader)
+    with open("data/avail/avail_latest.json") as f:
+        latest_avail = json.load(f)['carpark_data']
+
+    print(len(carpark_static))
+    print(carpark_static[0])
+    print(len(latest_avail))
+    print(latest_avail[0])
+    return [] # return a list of carparks
