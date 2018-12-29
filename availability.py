@@ -2,35 +2,52 @@ import requests
 import json
 import csv
 import os.path
+import logging
 from dataclasses import dataclass
+from utils import haversine, SVY21
 from secret import DATAMALL_APIKEY
+from config import DATA_FOLDER
 
-DATA_FOLDER = "data"
 
+logger = logging.getLogger(__name__)
 
 @dataclass
 class Position:
-    longitude: float
     latitude: float
+    longitude: float
 
 
 @dataclass
 class Carpark:
-    carpark_number: str
-    total_lots: int
-    lots_available: int
-    lot_type: str
+    id: str  # CarparkID if hdb, Development if not hdb, carpark_number in hdb availability
+    position: Position  # lat long
     address: str
-    x_coord: float
-    y_coord: float
-    car_park_type: str
-    type_of_parking_system: str
-    short_term_parking: str
-    free_parking: str
-    night_parking: bool
-    car_park_decks: int
-    gantry_height: float
-    car_park_basement: bool
+    total_lots: int = 0
+    available_lots: int = 0
+
+    lot_type: str = None
+    agency: str = None
+
+    # lta static variables (mostly rates)
+    lta_area: str = None
+    lta_category: str = None
+    weekdays_rate_1: str = None
+    weekdays_rate_2: str = None
+    saturday_rate: str = None
+    sunday_publicholiday_rate: str = None
+
+    # hdb variables
+    car_park_type: str = None
+    type_of_parking_system: str = None
+    short_term_parking: str = None
+    free_parking: str = None
+    night_parking: bool = None
+    car_park_decks: int = None
+    gantry_height: float = None
+    car_park_basement: bool = None
+
+    def is_valid(self):
+        return self.position is not None and self.address is not None
 
 
 def fetch_carpark_avail_datagov(overwrite=True):
@@ -39,49 +56,141 @@ def fetch_carpark_avail_datagov(overwrite=True):
     response = r.json()
     timestamp = "latest" if overwrite else response['items'][0]['timestamp']
     filename = os.path.join(DATA_FOLDER, "avail", "avail_datagov_{}.json".format(timestamp))
-    print(len(response['items'][0]['carpark_data']))
+
+    logger.info("retrieved {} objects from data.gov.sg".format(len(response['items'][0]['carpark_data'])))
     with open(filename, 'w') as outfile:
         json.dump(response['items'][0], outfile)
 
 
 def fetch_carpark_avail_lta(overwrite=True):
+    lta_url = "http://datamall2.mytransport.sg/ltaodataservice/CarParkAvailabilityv2"
     headers = {
         "AccountKey": DATAMALL_APIKEY,
         "accept": "application/json"
     }
-    r = requests.get(
-        "http://datamall2.mytransport.sg/ltaodataservice/CarParkAvailabilityv2", headers=headers)
-    response = r.json()
-    timestamp = "latest" if overwrite else response['items'][0]['timestamp']
+    r = requests.get(lta_url, headers=headers)
+    result = r.json()['value']
+    for i in [500, 1000, 1500, 2000]:
+        r = requests.get("{}?$skip={}".format(lta_url, i), headers=headers)
+        result += r.json()['value']
+
+    timestamp = "latest" if overwrite else ""
     filename = os.path.join(DATA_FOLDER, "avail", "avail_lta_{}.json".format(timestamp))
-    print(len(response['value']))
+    logger.info("retrieved {} objects from LTA datamall".format(len(result)))
     with open(filename, 'w') as outfile:
-        json.dump(response['value'], outfile)
+        json.dump(result, outfile)
 
 
 def fetch_carpark_avail_all(overwrite=True):
+    logger.info("Fetch carpark availability...")
     fetch_carpark_avail_datagov(overwrite)
     fetch_carpark_avail_lta(overwrite)
 
 
-def get_available_lots(latitude, longitude, radius=3):
+def combine_availabilities_and_static_data():
+    with open(os.path.join(DATA_FOLDER, "hdb-carpark-information.csv")) as f:
+        reader = csv.DictReader(f)
+        carpark_static_hdb = list(reader)
+    with open(os.path.join(DATA_FOLDER, "carpark-rates.csv")) as f:
+        reader = csv.DictReader(f)
+        carpark_static_lta = list(reader)
+    with open(os.path.join(DATA_FOLDER, "avail/avail_datagov_latest.json")) as f:
+        latest_avail_hdb = json.load(f)['carpark_data']
+    with open(os.path.join(DATA_FOLDER, "avail/avail_lta_latest.json")) as f:
+        latest_avail_lta = json.load(f)
+
+    carparks = {}
+    for carpark in carpark_static_hdb:
+        lat, lon = SVY21.computeLatLon(float(carpark['x_coord']), float(carpark['y_coord']))
+        cp = Carpark(
+            id=carpark['car_park_no'].upper(),
+            position=Position(lat, lon),
+            address=carpark['address'],
+            agency='HDB',
+            car_park_type=carpark['car_park_type'],
+            type_of_parking_system=carpark['type_of_parking_system'],
+            short_term_parking=carpark['short_term_parking'],
+            free_parking=carpark['free_parking'],
+            night_parking=carpark['night_parking'],
+            car_park_decks=int(carpark['car_park_decks']),
+            gantry_height=float(carpark['gantry_height']),
+            car_park_basement=True if carpark['car_park_basement'] == 'Y' else False
+        )
+
+        carparks[carpark['car_park_no']] = cp
+
+    for carpark in carpark_static_lta:
+        cp = Carpark(
+            id=carpark['carpark'],
+            position=None,
+            address=carpark['carpark'],
+            agency='LTA',
+            lta_category=carpark['category'],
+            weekdays_rate_1=carpark['weekdays_rate_1'],
+            weekdays_rate_2=carpark['weekdays_rate_2'],
+            saturday_rate=carpark['saturday_rate'],
+            sunday_publicholiday_rate=carpark['sunday_publicholiday_rate']
+        )
+
+        carparks[carpark['carpark']] = cp
+
+    for avail in latest_avail_lta:
+        carpark_id = avail['CarParkID'] if avail['Agency'] == 'HDB' else avail['Development']
+        if carpark_id not in carparks:
+            cp = Carpark(
+                id=carpark_id,
+                position=None,
+                address=avail['Development']
+            )
+            carparks[carpark_id] = cp
+        else:
+            cp = carparks[carpark_id]
+
+        if avail['Location'].strip():
+            cp.position = Position(*[float(x) for x in avail['Location'].strip().split()])
+        cp.available_lots = int(avail['AvailableLots'])
+        cp.lot_type = avail['LotType']
+        cp.agency = avail['Agency']
+        cp.lta_area = avail['Area']
+
+    for avail in latest_avail_hdb:
+        info = avail['carpark_info'][0]
+        carpark_id = avail['carpark_number']
+        if carpark_id not in carparks:
+            pass # no point adding carparks if we don't know their address
+            # cp = Carpark(
+            #     id=carpark_id,
+            #     position=None,
+            #     address=""
+            # )
+            # carparks[carpark_id] = cp
+        else:
+            cp = carparks[carpark_id]
+        cp.total_lots = int(info['total_lots'])
+        cp.available_lots = int(info['lots_available'])
+        cp.lot_type = info['lot_type']
+
+    return carparks
+
+
+def get_available_carparks(position, radius=3, limit=5):
     # e.g. latitude / longitude: 1.328172 / 103.842334
     # radius in km
     # if radius is none, return all carparks with their availability
+    carparks = list(combine_availabilities_and_static_data().values())
+    logger.info(f"{len(carparks)} carparks in total")
 
-    with open("data/hdb-carpark-information.csv") as f:
-        reader = csv.DictReader(f)
-        carpark_static_hdb = list(reader)
-    with open("data/CarParkRates.csv") as f:
-        reader = csv.DictReader(f)
-        carpark_static_malls = list(reader)
-    with open("data/avail/avail_datagov_latest.json") as f:
-        latest_avail_hdb = json.load(f)['carpark_data']
-    with open("data/avail/avail_lta_latest.json") as f:
-        latest_avail_assorted = json.load(f)
+    carparks = [carpark for carpark in carparks if carpark.is_valid() and carpark.available_lots is not None and carpark.available_lots > 0]
+    logger.info(f"{len(carparks)} carparks are valid")
 
-    print(len(carpark_static))
-    print(carpark_static[0])
-    print(len(latest_avail))
-    print(latest_avail[0])
-    return [] # return a list of carparks
+    if position is None or radius is None:
+        logger.info("position or radius is None, no filtering is done")
+        result = carparks
+    else:
+        available_carparks = [carpark for carpark in carparks if haversine(carpark.position.latitude, carpark.position.longitude, position.latitude, position.longitude) < radius]
+        result = sorted(available_carparks, key=lambda x: haversine(x.position.latitude, x.position.longitude, position.latitude, position.longitude))
+        logger.info(f"{len(result)} carparks are available and within radius of {radius}km")
+    if limit:
+        return result[:min(limit, len(result))]
+    else:
+        return result
