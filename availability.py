@@ -98,7 +98,7 @@ def fetch_carpark_avail_datagov(overwrite=True):
     timestamp = "latest" if overwrite else response['items'][0]['timestamp']
     filename = os.path.join(DATA_FOLDER, "avail", "avail_datagov_{}.json".format(timestamp))
 
-    logger.info("retrieved {} objects from data.gov.sg".format(len(response['items'][0]['carpark_data'])))
+    logger.debug("retrieved {} objects from data.gov.sg".format(len(response['items'][0]['carpark_data'])))
     with open(filename, 'w') as outfile:
         json.dump(response['items'][0], outfile)
 
@@ -121,13 +121,13 @@ def fetch_carpark_avail_lta(overwrite=True):
 
     timestamp = "latest" if overwrite else ""
     filename = os.path.join(DATA_FOLDER, "avail", "avail_lta_{}.json".format(timestamp))
-    logger.info("retrieved {} objects from LTA datamall".format(len(result)))
+    logger.debug("retrieved {} objects from LTA datamall".format(len(result)))
     with open(filename, 'w') as outfile:
         json.dump(result, outfile)
 
 
 def fetch_carpark_avail_all(overwrite=True):
-    logger.info("Fetch carpark availability...")
+    logger.debug("Fetch carpark availability...")
     fetch_carpark_avail_datagov(overwrite)
     fetch_carpark_avail_lta(overwrite)
     global CARPARKS
@@ -204,7 +204,7 @@ def combine_availabilities_and_static_data():
         info = avail['carpark_info'][0]
         carpark_id = avail['carpark_number']
         if carpark_id not in carparks:
-            pass # no point adding carparks if we don't know their address
+            pass  # no point adding carparks if we don't know their address
             # cp = Carpark(
             #     id=carpark_id,
             #     position=None,
