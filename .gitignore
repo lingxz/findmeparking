@@ -116,3 +116,5 @@ dmypy.json
 
 .DS_STORE
 secret.py
+
+data/avail/
