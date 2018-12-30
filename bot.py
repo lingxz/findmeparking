@@ -37,7 +37,7 @@ def error(bot, update, error):
 
 def format_carpark(carpark, distance=None):
     total_lots = carpark.total_lots if carpark.total_lots not in (
-        0, None) else "Unknown"
+        0, None) else "??"
     location_url = f"https://www.google.com/maps/search/?api=1&query={carpark.position.latitude},{carpark.position.longitude}"
     result = f"Carpark ID: [{carpark.id}]({location_url}) | Address: {carpark.address} | Lots left: {carpark.available_lots}/{total_lots}"
     if distance is None:
@@ -118,8 +118,49 @@ def nearest_carparks(bot, update):
             reply_markup=reply_markup)
 
 
+def bool_to_string(bool):
+    return "yes" if bool else "no"
+
+
 def format_carpark_details(carpark):
-    return str(carpark)
+    reply = f"*=== 🚘 Carpark {carpark.id} ===*\n"
+    reply += f"[Google maps link](https://www.google.com/maps/search/?api=1&query={carpark.position.latitude},{carpark.position.longitude})\n"
+    reply += f"*Address*: {carpark.address}\n"
+    total_lots = carpark.total_lots if carpark.total_lots not in (
+        0, None) else "??"
+    reply += f"*Lots left*: {carpark.available_lots}/{total_lots}\n"
+
+    # lta variables
+    if carpark.lta_area:
+        reply += f"*Area*: {carpark.lta_area}\n"
+    if carpark.weekdays_rate_1:
+        reply += f"*Weekdays rate 1*: {carpark.weekdays_rate_1}\n"
+    if carpark.weekdays_rate_2:
+        reply += f"*Weekdays rate 2*: {carpark.weekdays_rate_2}\n"
+    if carpark.saturday_rate:
+        reply += f"*Saturday rate*: {carpark.saturday_rate}\n"
+    if carpark.sunday_publicholiday_rate:
+        reply += f"*Sundays and PH rate*: {carpark.sunday_publicholiday_rate}\n"
+
+    #  hdb variables
+    if carpark.car_park_type:
+        reply += f"*Carpark type*: {carpark.car_park_type}\n"
+    if carpark.type_of_parking_system:
+        reply += f"*Type of parking system*: {carpark.type_of_parking_system}\n"
+    if carpark.short_term_parking:
+        reply += f"*Short-term parking*: {carpark.short_term_parking}\n"
+    if carpark.free_parking:
+        reply += f"*Free parking*: {carpark.free_parking}\n"
+    if carpark.night_parking is None:
+        reply += f"*Night parking*: {bool_to_string(carpark.night_parking)}\n"
+    if carpark.car_park_decks:
+        reply += f"*Carpark decks*: {carpark.car_park_decks}\n"
+    if carpark.gantry_height:
+        reply += f"*Gantry height*: {carpark.gantry_height}m\n"
+    if carpark.car_park_basement is None:
+        reply += f"*Basement?*: {bool_to_string(carpark.car_park_basement)}\n"
+
+    return reply
 
 
 def single_carpark_details(bot, update):
@@ -129,7 +170,13 @@ def single_carpark_details(bot, update):
     bot.send_message(
         chat_id=update.callback_query.message.chat_id,
         text=format_carpark_details(cp),
+        disable_web_page_preview=True,
         parse_mode=telegram.ParseMode.MARKDOWN
+    )
+    bot.send_location(
+        chat_id=update.callback_query.message.chat_id,
+        latitude=cp.position.latitude,
+        longitude=cp.position.longitude
     )
 
 

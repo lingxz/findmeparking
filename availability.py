@@ -99,7 +99,11 @@ def fetch_carpark_avail_lta(overwrite=True):
         "accept": "application/json"
     }
     r = requests.get(lta_url, headers=headers)
-    result = r.json()['value']
+    try:
+        result = r.json()['value']
+    except:
+        logger.error(f"Parsing json {r.json}")
+        return
     for i in [500, 1000, 1500, 2000]:
         r = requests.get("{}?$skip={}".format(lta_url, i), headers=headers)
         result += r.json()['value']
