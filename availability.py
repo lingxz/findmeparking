@@ -11,6 +11,36 @@ from config import DATA_FOLDER
 
 logger = logging.getLogger(__name__)
 
+CARPARKS = {}
+
+
+@dataclass
+class Page:
+    start: int
+    end: int
+    total: int = None
+
+    def check_total(self):
+        if self.total is None:
+            raise Exception("cannot calculate quantities if total is not set")
+
+    def has_next(self):
+        self.check_total()
+        return self.end < self.total
+
+    def has_prev(self):
+        self.check_total()
+        return self.start > 0
+
+    def next_page(self):
+        self.check_total()
+        return Page(self.end, min(self.total, self.end + self.end - self.start), self.total)
+
+    def prev_page(self):
+        self.check_total()
+        return Page(max(0, self.start - (self.end - self.start)), self.start, self.total)
+
+
 @dataclass
 class Position:
     latitude: float
@@ -85,6 +115,8 @@ def fetch_carpark_avail_all(overwrite=True):
     logger.info("Fetch carpark availability...")
     fetch_carpark_avail_datagov(overwrite)
     fetch_carpark_avail_lta(overwrite)
+    global CARPARKS
+    CARPARKS = combine_availabilities_and_static_data()
 
 
 def combine_availabilities_and_static_data():
@@ -177,7 +209,7 @@ def get_available_carparks(position, radius=3, limit=5):
     # e.g. latitude / longitude: 1.328172 / 103.842334
     # radius in km
     # if radius is none, return all carparks with their availability
-    carparks = list(combine_availabilities_and_static_data().values())
+    carparks = list(CARPARKS.values())
     logger.info(f"{len(carparks)} carparks in total")
 
     carparks = [carpark for carpark in carparks if carpark.is_valid() and carpark.available_lots is not None and carpark.available_lots > 0]
@@ -194,3 +226,15 @@ def get_available_carparks(position, radius=3, limit=5):
         return result[:min(limit, len(result))]
     else:
         return result
+
+
+def get_available_carparks_page(position, radius=3, limit=5, page=None):
+    carparks = get_available_carparks(position, radius, limit)
+    page.total = len(carparks)
+    if page.start >= page.end or page.start < 0 or page.start > len(carparks) or page.end < 0 or page.end > len(carparks):
+        raise Exception(f"Invalid page numbers, start: {page.start}, end: {page.end}, total: {len(carparks)}")
+    return carparks[page.start:page.end], page
+
+
+def retrieve_carpark_by_id(carpark_id):
+    return CARPARKS[carpark_id]

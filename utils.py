@@ -2,7 +2,7 @@ import math
 from math import radians, cos, sin, asin, sqrt
 
 
-def haversine(lon1, lat1, lon2, lat2):
+def haversine(lat1, lon1, lat2, lon2):
     """
     Calculate the great circle distance between two points
     on the earth (specified in decimal degrees)
@@ -22,7 +22,7 @@ def haversine(lon1, lat1, lon2, lat2):
 # conversion code adapted from https://github.com/cgcai/SVY21/blob/master/Python/SVY21.py
 class SVY21:
     # Ref: http://www.linz.govt.nz/geodetic/conversion-coordinates/projection-conversions/transverse-mercator-preliminary-computations/index.aspx
-    
+
     # WGS84 Datum
     a = 6378137
     f = 1 / 298.257223563
@@ -32,7 +32,7 @@ class SVY21:
     # Latitude: 1 22 02.9154 N, longitude: 103 49 31.9752 E (of Greenwich).
 
     # Known Issue: Setting (oLat, oLon) to the exact coordinates specified above
-    # results in computation being slightly off. The values below give the most 
+    # results in computation being slightly off. The values below give the most
     # accurate represenation of test data.
     oLat = 1.366666     # origin's lat in degrees
     oLon = 103.833333   # origin's lon in degrees
@@ -44,10 +44,10 @@ class SVY21:
     e2 = (2 * f) - (f * f)
     e4 = e2 * e2
     e6 = e4 * e2
-    A0 = 1 - (e2 / 4) - (3 * e4 / 64) - (5 * e6 / 256);
-    A2 = (3. / 8.) * (e2 + (e4 / 4) + (15 * e6 / 128));
-    A4 = (15. / 256.) * (e4 + (3 * e6 / 4));
-    A6 = 35 * e6 / 3072;
+    A0 = 1 - (e2 / 4) - (3 * e4 / 64) - (5 * e6 / 256)
+    A2 = (3. / 8.) * (e2 + (e4 / 4) + (15 * e6 / 128))
+    A4 = (15. / 256.) * (e4 + (3 * e6 / 4))
+    A6 = 35 * e6 / 3072
 
     @classmethod
     def computeSVY21(cls, lat, lon):
@@ -178,3 +178,8 @@ class SVY21:
         lon = (cls.oLon * math.pi / 180) + lonTerm1 - lonTerm2 + lonTerm3 - lonTerm4
 
         return (lat / (math.pi / 180), lon / (math.pi / 180))
+
+
+
+
+# haversine(1.330749004, 103.8422339, 1.328165, 103.842304)
