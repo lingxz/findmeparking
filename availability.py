@@ -3,11 +3,12 @@ import json
 import csv
 import os.path
 import logging
+import math
 from dataclasses import dataclass
+import googlemaps
 from utils import haversine, SVY21
-from secret import DATAMALL_APIKEY
+from secret import DATAMALL_APIKEY, GOOGLE_MAPS_APIKEY
 from config import DATA_FOLDER
-
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,16 @@ class Page:
     def prev_page(self):
         self.check_total()
         return Page(max(0, self.start - (self.end - self.start)), self.start, self.total)
+
+    def total_pages(self):
+        self.check_total()
+        interval = self.end - self.start
+        return int(math.ceil(self.total / interval))
+
+    def current_page(self):
+        self.check_total()
+        interval = self.end - self.start
+        return int(math.ceil(self.start / interval)) + 1
 
 
 @dataclass
@@ -234,6 +245,8 @@ def get_available_carparks(position, radius=3, limit=5):
 
 def get_available_carparks_page(position, radius=3, limit=5, page=None):
     carparks = get_available_carparks(position, radius, limit)
+    if len(carparks) == 0:
+        raise NoCarparksFoundError
     page.total = len(carparks)
     if page.start >= page.end or page.start < 0 or page.start > len(carparks) or page.end < 0 or page.end > len(carparks):
         raise Exception(f"Invalid page numbers, start: {page.start}, end: {page.end}, total: {len(carparks)}")
@@ -242,3 +255,21 @@ def get_available_carparks_page(position, radius=3, limit=5, page=None):
 
 def retrieve_carpark_by_id(carpark_id):
     return CARPARKS[carpark_id]
+
+
+def gmaps_search_to_latlon(search_term):
+    gmaps = googlemaps.Client(key=GOOGLE_MAPS_APIKEY)
+    logger.info(f"Searching GMaps for {search_term} Singapore")
+    result = gmaps.geocode(search_term + " Singapore")[0]
+    location = result['geometry']['location']
+    logger.info(f"Retrieved coordinates lat: {location['lat']}, lon: {location['lng']}")
+    return Position(location['lat'], location['lng']), result['formatted_address']
+
+
+def get_available_carparks_fuzzy(search_term, radius=3, limit=5):
+    position, _ = gmaps_search_to_latlon(search_term)
+    return get_available_carparks(position, radius, limit)
+
+
+class NoCarparksFoundError(Exception):
+    pass

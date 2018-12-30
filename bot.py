@@ -4,7 +4,7 @@ from telegram import (ReplyKeyboardMarkup, ReplyKeyboardRemove,
                       KeyboardButton, InlineKeyboardButton, InlineKeyboardMarkup)
 from telegram.ext import (Updater, CommandHandler, MessageHandler, CallbackQueryHandler, Filters)
 import logging
-from availability import get_available_carparks_page, fetch_carpark_avail_all, retrieve_carpark_by_id, Position, Page
+from availability import get_available_carparks_page, fetch_carpark_avail_all, retrieve_carpark_by_id, gmaps_search_to_latlon, Position, Page, NoCarparksFoundError
 from utils import haversine
 from secret import TELEGRAM_TOKEN
 from config import PAGE_SIZE, DISTANCE_RADIUS_KM
@@ -22,13 +22,13 @@ def start(bot, update):
     location_keyboard = KeyboardButton(
         text="Send current location", request_location=True)
     update.message.reply_text(
-        "Hi {}, I will help you find nearby carparks, but first, please send me your location".format(
+        "Hi {}, I will help you find nearby carparks. Please send me your location or search for a place using /find, e.g. /find city square mall".format(
             user.first_name),
         reply_markup=ReplyKeyboardMarkup([[location_keyboard]]))
 
 
 def help(bot, update):
-    update.message.reply_text("Help?!")
+    update.message.reply_text("Send me your location to start finding carparks near you or use /find to find carparks near a specific place, e.g. /find city square mall")
 
 
 def error(bot, update, error):
@@ -43,11 +43,15 @@ def format_carpark(carpark, distance=None):
     if distance is None:
         return result
     else:
-        return result + f" | Distance from here: {int(distance*1000)}m"
+        return result + f" | Distance from location: {int(distance*1000)}m"
 
 
-def format_reply(carparks, current_pos):
-    reply = car_emoji + f" *Here are the nearest available carparks (within {DISTANCE_RADIUS_KM}km distance):* \n\n"
+def format_reply(carparks, current_pos, current_page, location_str="you"):
+    page_str = f"page {current_page.current_page()}/{current_page.total_pages()}"
+    if not current_page.has_next():
+        page_str = "last page"
+
+    reply = car_emoji + f" *Here are the available carparks near {location_str} ({page_str}) :* \n\n"
     reply += '\n'.join(["*" + str(index + 1) + ".* " + format_carpark(carpark, haversine(current_pos.latitude, current_pos.longitude, carpark.position.latitude, carpark.position.longitude))
                         for index, carpark in enumerate(carparks)])
     reply += "\n\n For more details for each carpark click one of the buttons below"
@@ -81,6 +85,25 @@ def get_keyboard(carparks, current_page, lat, lon):
     return [carpark_info_kb, nested_keyboard]
 
 
+def nearest_carparks_fuzzy(bot, update, args):
+    if len(args) == 0:
+        return update.message.reply_text("Please type a location for me to find 😑")
+    search_term = ' '.join(args)
+    pos, formatted_address = gmaps_search_to_latlon(search_term)
+    current_page = Page(0, PAGE_SIZE)
+    try:
+        carparks, current_page = get_available_carparks_page(pos, radius=DISTANCE_RADIUS_KM, limit=None, page=current_page)
+    except NoCarparksFoundError:
+        return update.message.reply_text(text="Sorry, no carparks found for this location 😞")
+    reply_kb = get_keyboard(carparks, current_page, pos.latitude, pos.longitude)
+    reply_markup = InlineKeyboardMarkup(reply_kb)
+    location_str = ""
+    update.message.reply_markdown(
+        text=format_reply(carparks, pos, current_page, location_str=formatted_address),
+        disable_web_page_preview=True,
+        reply_markup=reply_markup)
+
+
 def nearest_carparks(bot, update):
     if not update.message:
         is_callback = True
@@ -98,7 +121,10 @@ def nearest_carparks(bot, update):
                     longitude)
 
     current_pos = Position(latitude, longitude)
-    carparks, current_page = get_available_carparks_page(current_pos, radius=DISTANCE_RADIUS_KM, limit=None, page=current_page)
+    try:
+        carparks, current_page = get_available_carparks_page(current_pos, radius=DISTANCE_RADIUS_KM, limit=None, page=current_page)
+    except NoCarparksFoundError:
+        update.message.reply_text(text="Sorry, no carparks found for this location 😞")
 
     reply_kb = get_keyboard(carparks, current_page, latitude, longitude)
     reply_markup = InlineKeyboardMarkup(reply_kb)
@@ -107,13 +133,13 @@ def nearest_carparks(bot, update):
         bot.edit_message_text(
             chat_id=update.callback_query.message.chat_id,
             message_id=update.callback_query.message.message_id,
-            text=format_reply(carparks, current_pos),
+            text=format_reply(carparks, current_pos, current_page),
             disable_web_page_preview=True,
             parse_mode=telegram.ParseMode.MARKDOWN,
             reply_markup=reply_markup)
     else:
         update.message.reply_markdown(
-            text=format_reply(carparks, current_pos),
+            text=format_reply(carparks, current_pos, current_page),
             disable_web_page_preview=True,
             reply_markup=reply_markup)
 
@@ -194,6 +220,7 @@ def main():
 
     dp.add_handler(CommandHandler('start', start))
     dp.add_handler(CommandHandler('help', help))
+    dp.add_handler(CommandHandler('find', nearest_carparks_fuzzy, pass_args=True))
     dp.add_handler(CallbackQueryHandler(handle_callback))
 
     location_handler = MessageHandler(
