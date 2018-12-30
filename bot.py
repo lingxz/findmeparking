@@ -1,7 +1,8 @@
+from functools import wraps
 import json
 import telegram
 from telegram import (ReplyKeyboardMarkup, ReplyKeyboardRemove,
-                      KeyboardButton, InlineKeyboardButton, InlineKeyboardMarkup)
+                      KeyboardButton, InlineKeyboardButton, InlineKeyboardMarkup, ChatAction)
 from telegram.ext import (Updater, CommandHandler, MessageHandler, CallbackQueryHandler, Filters)
 import logging
 from availability import get_available_carparks_page, fetch_carpark_avail_all, retrieve_carpark_by_id, gmaps_search_to_latlon, Position, Page, NoCarparksFoundError
@@ -15,20 +16,35 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 car_emoji = "🚗"
+footnote = "✌🏻 This bot is made by Lingyi. Any bugs or suggestions please submit an issue or pull request on [Github](https://github.com/lingxz/findmeparking)."
+
+
+def send_typing_action(func):
+    """Sends typing action while processing func command."""
+
+    @wraps(func)
+    def command_func(*args, **kwargs):
+        bot, update = args
+        bot.send_chat_action(chat_id=update.effective_message.chat_id, action=telegram.ChatAction.TYPING)
+        return func(bot, update, **kwargs)
+
+    return command_func
 
 
 def start(bot, update):
     user = update.message.from_user
     location_keyboard = KeyboardButton(
         text="Send current location", request_location=True)
-    update.message.reply_text(
-        "Hi {}, I will help you find nearby carparks. Please send me your location or search for a place using /find, e.g. /find city square mall".format(
-            user.first_name),
+    update.message.reply_markdown(
+        f"Hi {user.first_name}, I will help you find nearby carparks. Please send me your location or search for a place using /find, e.g. /find city square mall\n\n{footnote}",
+        disable_web_page_preview=True,
         reply_markup=ReplyKeyboardMarkup([[location_keyboard]]))
 
 
 def help(bot, update):
-    update.message.reply_text("Send me your location to start finding carparks near you or use /find to find carparks near a specific place, e.g. /find city square mall")
+    update.message.reply_markdown(
+        f"Send me your location to start finding carparks near you or use /find to find carparks near a specific place, e.g. /find city square mall\n\n{footnote}",
+        disable_web_page_preview=True)
 
 
 def error(bot, update, error):
@@ -54,7 +70,7 @@ def format_reply(carparks, current_pos, current_page, location_str="you"):
     reply = car_emoji + f" *Here are the available carparks near {location_str} ({page_str}) :* \n\n"
     reply += '\n'.join(["*" + str(index + 1) + ".* " + format_carpark(carpark, haversine(current_pos.latitude, current_pos.longitude, carpark.position.latitude, carpark.position.longitude))
                         for index, carpark in enumerate(carparks)])
-    reply += "\n\n For more details for each carpark click one of the buttons below"
+    reply += "\n\n For more details for each carpark press one of the buttons below."
     return reply
 
 
@@ -85,6 +101,7 @@ def get_keyboard(carparks, current_page, lat, lon):
     return [carpark_info_kb, nested_keyboard]
 
 
+@send_typing_action
 def nearest_carparks_fuzzy(bot, update, args):
     if len(args) == 0:
         return update.message.reply_text("Please type a location for me to find 😑")
